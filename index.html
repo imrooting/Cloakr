@@ -1,0 +1,1681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pentest Data Sanitizer v8</title>
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src https://api.anthropic.com https://api.openai.com https://generativelanguage.googleapis.com https://api.x.ai; img-src 'self' data:; object-src 'none'; base-uri 'none'; form-action 'none';">
+<meta http-equiv="X-Content-Type-Options" content="nosniff">
+<meta http-equiv="X-Frame-Options" content="DENY">
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap');
+
+:root {
+  --bg:        #ffffff;
+  --bg2:       #f6f8fa;
+  --bg3:       #eaeef2;
+  --bg4:       #d0d7de;
+  --border:    #d0d7de;
+  --border2:   #b1bac4;
+  --text:      #1f2328;
+  --text2:     #57606a;
+  --text3:     #8c959f;
+  --green:     #1a7f37;
+  --green2:    #2da44e;
+  --green-bg:  #dafbe1;
+  --red:       #cf222e;
+  --red2:      #d1242f;
+  --amber:     #9a6700;
+  --amber-bg:  #fff8c5;
+  --blue:      #0969da;
+  --blue2:     #218bff;
+  --purple:    #8250df;
+  --font-mono: 'IBM Plex Mono', monospace;
+  --font-sans: 'IBM Plex Sans', sans-serif;
+  --radius:    6px;
+  --radius-lg: 10px;
+
+  /* highlight colors — light, legible */
+  --hi-ip:     #ddf4e8; --hi-ip-t:  #116329;
+  --hi-dom:    #ddf0ff; --hi-dom-t: #0550ae;
+  --hi-mac:    #fff3d4; --hi-mac-t: #7d4e00;
+  --hi-cook:   #f4e8ff; --hi-cook-t:#622cbc;
+  --hi-man:    #fff1e0; --hi-man-t: #953800;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body { font-family: var(--font-sans); background: var(--bg); color: var(--text); font-size: 13px; display: flex; flex-direction: column; }
+
+/* ── HEADER ── */
+.app-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 20px; height: 52px; min-height: 52px;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.app-brand { display: flex; align-items: center; gap: 10px; }
+.app-logo {
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  background: var(--green); color: #fff; padding: 3px 8px; border-radius: 4px;
+  letter-spacing: .06em;
+}
+.app-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.app-version {
+  font-family: var(--font-mono); font-size: 10px; color: var(--text3);
+  background: var(--bg3); border: 1px solid var(--border); padding: 2px 6px; border-radius: 4px;
+}
+.app-tagline { font-size: 11px; color: var(--text3); font-family: var(--font-mono); }
+
+/* ── TABS ── */
+.tab-bar {
+  display: flex; align-items: flex-end;
+  background: var(--bg2); border-bottom: 1px solid var(--border);
+  padding: 0 20px; gap: 0; flex-shrink: 0;
+}
+.tab-btn {
+  font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+  padding: 10px 16px; cursor: pointer; border: none; background: none;
+  color: var(--text2); border-bottom: 2px solid transparent;
+  transition: color .15s, border-color .15s; white-space: nowrap;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--green2); border-bottom-color: var(--green2); }
+
+/* ── LAYOUT ── */
+.app-body { display: flex; flex: 1; overflow: hidden; }
+.tab-pane { display: none; flex: 1; overflow: hidden; }
+.tab-pane.active { display: flex; }
+
+/* ── SANITIZE PANE ── */
+.sanitize-layout { display: flex; flex: 1; overflow: hidden; }
+
+.editor-col { flex: 1; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-width: 0; }
+.pane-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 14px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  flex-shrink: 0; gap: 8px;
+}
+.pane-label {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  color: var(--text3); text-transform: uppercase; letter-spacing: .08em; flex-shrink: 0;
+}
+.pane-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+
+textarea.raw {
+  flex: 1; resize: none; border: none; outline: none;
+  background: var(--bg); color: var(--text);
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.75;
+  padding: 14px; width: 100%;
+}
+textarea.raw::placeholder { color: var(--text3); }
+
+.output-wrap { flex: 1; position: relative; overflow: hidden; display: flex; flex-direction: column; }
+.output-scroll {
+  flex: 1; overflow-y: auto; padding: 14px;
+  font-family: var(--font-mono); font-size: 12px; line-height: 1.75;
+  white-space: pre-wrap; word-break: break-all;
+  background: var(--bg); color: var(--text);
+}
+.output-scroll { cursor: default; }
+.output-scroll.sel-mode { cursor: text; }
+
+/* ── EDIT MODE ── */
+.output-scroll[contenteditable="true"] { outline: none; cursor: text; }
+.edit-banner {
+  display: none; padding: 6px 14px; background: #0d1a33;
+  border-bottom: 1px solid #1a3a6b; font-size: 11px;
+  font-family: var(--font-mono); color: #79b8ff;
+  align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.edit-banner.on { display: flex; }
+.edit-banner a { color: #58a6ff; cursor: pointer; text-decoration: underline; }
+
+/* ── AI CHAT PANEL (inline, bottom of output col) ── */
+.ai-chat-panel {
+  flex-shrink: 0; display: flex; flex-direction: column;
+  border-top: 2px solid var(--green); background: var(--bg2);
+  height: 320px; min-height: 200px; max-height: 60%;
+  transition: height .15s;
+}
+.ai-chat-panel.collapsed { height: 38px; min-height: 38px; }
+.ai-chat-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0 12px; height: 38px; min-height: 38px; flex-shrink: 0;
+  background: var(--bg3); border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none;
+}
+.ai-chat-header-left { display: flex; align-items: center; gap: 8px; }
+.ai-chat-badge {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  background: var(--green); color: #fff; padding: 2px 7px; border-radius: 3px;
+  letter-spacing: .04em;
+}
+.ai-chat-title { font-size: 12px; font-weight: 500; color: var(--text); }
+.ai-chat-header-right { display: flex; align-items: center; gap: 6px; }
+.ai-chat-collapse { font-size: 14px; color: var(--text3); line-height: 1; }
+
+.ai-chat-presets {
+  display: flex; gap: 5px; flex-wrap: wrap; padding: 8px 12px 0;
+  flex-shrink: 0; border-bottom: 1px solid var(--border); padding-bottom: 8px;
+}
+.ai-preset-btn {
+  font-size: 10px; padding: 3px 8px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--bg); color: var(--text2);
+  font-family: var(--font-sans); transition: all .1s; white-space: nowrap;
+}
+.ai-preset-btn:hover { border-color: var(--green); color: var(--green2); }
+
+.ai-chat-messages {
+  flex: 1; overflow-y: auto; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+}
+.ai-msg { font-size: 13px; line-height: 1.7; padding: 10px 12px; border-radius: 6px; max-width: 100%; }
+.ai-msg.user {
+  background: var(--green-bg); color: var(--hi-ip-t);
+  border: 1px solid #b7e8c4; align-self: flex-end; font-family: var(--font-sans);
+}
+.ai-msg.assistant {
+  background: var(--bg); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--font-sans); white-space: pre-wrap; font-size: 13px;
+}
+.ai-msg.system { color: var(--text3); font-size: 11px; font-family: var(--font-mono); text-align: center; }
+.ai-msg.thinking { color: var(--text3); font-size: 11px; font-family: var(--font-mono); font-style: italic; }
+
+.ai-chat-input-row {
+  display: flex; gap: 6px; padding: 8px 12px; flex-shrink: 0;
+  border-top: 1px solid var(--border); background: var(--bg2);
+}
+.ai-chat-input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: var(--radius); color: var(--text); font-family: var(--font-sans);
+  font-size: 12px; padding: 6px 10px; outline: none; resize: none;
+  line-height: 1.5; max-height: 80px; min-height: 32px;
+}
+.ai-chat-input:focus { border-color: var(--green); }
+.ai-send-btn {
+  background: var(--green); border: none; border-radius: var(--radius);
+  color: #fff; font-size: 13px; cursor: pointer; padding: 0 12px;
+  flex-shrink: 0; transition: background .12s; display: flex; align-items: center; gap: 4px;
+}
+.ai-send-btn:hover { background: var(--green2); }
+.ai-send-btn:disabled { opacity: .4; cursor: not-allowed; }
+.ai-clear-btn {
+  background: none; border: 1px solid var(--border2); border-radius: var(--radius);
+  color: var(--text3); font-size: 11px; cursor: pointer; padding: 0 8px;
+  flex-shrink: 0; transition: all .12s;
+}
+.ai-clear-btn:hover { border-color: var(--red); color: var(--red2); }
+.resize-handle {
+  height: 4px; cursor: ns-resize; flex-shrink: 0;
+  background: transparent; transition: background .15s;
+}
+.resize-handle:hover { background: var(--green); }
+
+/* empty state */
+.empty-state {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; gap: 16px; color: var(--text3);
+}
+.empty-state .es-icon { font-size: 32px; opacity: .4; }
+.empty-state .es-label { font-size: 12px; font-family: var(--font-mono); }
+.empty-state .es-legend { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; max-width: 280px; }
+
+/* ── SIDEBAR ── */
+.sidebar {
+  width: 270px; flex-shrink: 0; display: flex; flex-direction: column;
+  background: var(--bg2); border-left: 1px solid var(--border); overflow-y: auto;
+}
+.sb-section { padding: 14px; border-bottom: 1px solid var(--border); }
+.sb-title {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  color: var(--text3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 10px;
+  display: flex; align-items: center; gap: 6px;
+}
+.sb-title .sb-count {
+  background: var(--bg3); border: 1px solid var(--border); border-radius: 10px;
+  padding: 1px 7px; font-size: 10px; color: var(--text2);
+}
+
+/* toggle rows */
+.toggle-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.toggle-label { font-size: 12px; color: var(--text); display: flex; align-items: center; gap: 7px; }
+.toggle-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.toggle-switch {
+  width: 32px; height: 18px; border-radius: 9px; background: var(--bg4);
+  cursor: pointer; position: relative; border: none; transition: background .2s; flex-shrink: 0;
+}
+.toggle-switch.on { background: var(--green); }
+.toggle-knob {
+  position: absolute; top: 2px; left: 2px; width: 14px; height: 14px;
+  border-radius: 50%; background: #fff; transition: left .2s;
+}
+.toggle-switch.on .toggle-knob { left: 16px; }
+
+/* stats chips */
+.stats-grid { display: flex; flex-wrap: wrap; gap: 5px; }
+.stat-chip {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 500;
+  padding: 3px 8px; border-radius: 12px; border: 1px solid transparent;
+}
+
+/* map entries */
+.map-entry {
+  font-family: var(--font-mono); font-size: 10.5px; margin-bottom: 5px;
+  display: flex; align-items: flex-start; gap: 4px;
+}
+.map-badge {
+  font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px;
+  flex-shrink: 0; margin-top: 1px;
+}
+.map-orig { color: var(--text2); word-break: break-all; flex: 1; min-width: 0; }
+.map-rep { color: var(--green2); font-weight: 500; flex-shrink: 0; }
+.map-arrow { color: var(--text3); flex-shrink: 0; }
+.map-empty { color: var(--text3); font-size: 11px; font-family: var(--font-mono); text-align: center; padding: 6px 0; }
+
+/* ── HIGHLIGHTS ── */
+.hi { border-radius: 3px; padding: 0 3px; font-weight: 500; }
+.hi-ip   { background: var(--hi-ip);  color: var(--hi-ip-t);  }
+.hi-dom  { background: var(--hi-dom); color: var(--hi-dom-t); }
+.hi-mac  { background: var(--hi-mac); color: var(--hi-mac-t); }
+.hi-cook { background: var(--hi-cook);color: var(--hi-cook-t);}
+.hi-man  { background: var(--hi-man); color: var(--hi-man-t); }
+
+/* ── BUTTONS ── */
+.btn {
+  font-family: var(--font-sans); font-size: 12px; font-weight: 500;
+  padding: 5px 11px; border-radius: var(--radius); cursor: pointer;
+  border: 1px solid var(--border2); background: var(--bg3); color: var(--text);
+  transition: background .12s, border-color .12s; white-space: nowrap; display: inline-flex;
+  align-items: center; gap: 5px;
+}
+.btn:hover { background: var(--bg4); border-color: var(--border2); }
+.btn.green { background: var(--green); border-color: var(--green); color: #fff; }
+.btn.green:hover { background: var(--green2); }
+.btn.red { background: transparent; border-color: var(--red); color: var(--red2); }
+.btn.red:hover { background: rgba(218,54,51,.1); }
+.btn.red.active { background: rgba(218,54,51,.15); border-color: var(--red2); color: var(--red2); }
+.btn.blue { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.blue:hover { background: var(--blue2); border-color: var(--blue2); color: #000; }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn-icon { font-size: 13px; line-height: 1; }
+
+/* ── SEL-MODE BANNER ── */
+.sel-banner {
+  display: none; padding: 6px 14px; background: #1a0d00;
+  border-bottom: 1px solid #5a3000; font-size: 11px;
+  font-family: var(--font-mono); color: #ffa657;
+  align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.sel-banner.on { display: flex; }
+.sel-banner a { color: #ff8c42; cursor: pointer; text-decoration: underline; }
+
+/* ── FLOATING CONTEXT MENU ── */
+#ctx-menu {
+  display: none; position: fixed; z-index: 9999;
+  background: var(--bg2); border: 1px solid var(--border2);
+  border-radius: var(--radius-lg); box-shadow: 0 8px 32px rgba(0,0,0,.6);
+  overflow: hidden; min-width: 220px;
+}
+.ctx-header {
+  padding: 8px 12px; font-family: var(--font-mono); font-size: 10px;
+  color: var(--text3); background: var(--bg3); border-bottom: 1px solid var(--border);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600;
+  text-transform: uppercase; letter-spacing: .06em;
+}
+.ctx-item {
+  padding: 9px 14px; font-size: 12px; cursor: pointer; color: var(--text);
+  display: flex; align-items: center; gap: 10px;
+  border-bottom: 1px solid var(--border); transition: background .1s;
+}
+.ctx-item:last-child { border-bottom: none; }
+.ctx-item:hover { background: var(--bg3); }
+.ctx-item .ci-icon { font-size: 14px; width: 18px; text-align: center; flex-shrink: 0; }
+.ctx-item .ci-main { font-weight: 500; font-size: 12px; }
+.ctx-item .ci-sub { font-size: 10px; color: var(--text3); font-family: var(--font-mono); margin-top: 1px; }
+.ctx-cancel { color: var(--text3) !important; }
+
+/* ── AI ANALYSIS PANE ── */
+.ai-pane { flex: 1; display: flex; gap: 0; overflow: hidden; }
+.ai-left { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 20px; gap: 16px; border-right: 1px solid var(--border); }
+.ai-right { width: 340px; flex-shrink: 0; display: flex; flex-direction: column; overflow-y: auto; padding: 20px; gap: 16px; }
+
+.card {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: var(--radius-lg); overflow: hidden;
+}
+.card-head {
+  padding: 12px 16px; background: var(--bg3); border-bottom: 1px solid var(--border);
+  font-size: 12px; font-weight: 600; color: var(--text); display: flex; align-items: center; gap: 8px;
+}
+.card-body { padding: 16px; }
+.card-body p { font-size: 12px; color: var(--text2); line-height: 1.6; margin-bottom: 10px; }
+.card-body p:last-child { margin-bottom: 0; }
+
+/* warning box */
+.warn-box {
+  background: var(--amber-bg); border: 1px solid var(--amber);
+  border-radius: var(--radius); padding: 12px 14px;
+  font-size: 12px; color: #e3b341; line-height: 1.6; margin-bottom: 12px;
+}
+.warn-box strong { color: #f0c040; }
+
+/* AI provider select */
+.ai-form-row { display: flex; gap: 8px; margin-bottom: 10px; align-items: center; }
+.ai-form-row label { font-size: 12px; color: var(--text2); white-space: nowrap; min-width: 70px; }
+.ai-select, .ai-input {
+  flex: 1; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: var(--radius); color: var(--text); font-family: var(--font-sans);
+  font-size: 12px; padding: 6px 10px; outline: none;
+}
+.ai-select:focus, .ai-input:focus { border-color: var(--green); }
+.ai-select option { background: var(--bg2); }
+.ai-textarea {
+  width: 100%; background: var(--bg); border: 1px solid var(--border2);
+  border-radius: var(--radius); color: var(--text); font-family: var(--font-sans);
+  font-size: 12px; padding: 8px 10px; outline: none; resize: none; min-height: 80px;
+  line-height: 1.5; margin-bottom: 10px;
+}
+.ai-textarea:focus { border-color: var(--green); }
+
+.key-status { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text3); margin-top: 6px; }
+.ksdot { width: 7px; height: 7px; border-radius: 50%; background: var(--bg4); flex-shrink: 0; }
+.ksdot.ok { background: var(--green); }
+.ksdot.err { background: var(--red); }
+
+.preset-grid { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 10px; }
+.preset-btn {
+  font-size: 11px; padding: 4px 9px; border-radius: 4px; cursor: pointer;
+  border: 1px solid var(--border2); background: var(--bg3); color: var(--text2);
+  font-family: var(--font-sans); transition: all .1s;
+}
+.preset-btn:hover { border-color: var(--green); color: var(--green2); }
+
+.ai-response {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px; font-size: 12px; line-height: 1.7; color: var(--text);
+  white-space: pre-wrap; max-height: 400px; overflow-y: auto;
+  font-family: var(--font-sans); margin-top: 10px;
+}
+
+/* ── LOG PANE ── */
+.log-pane { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.log-toolbar { padding: 8px 14px; background: var(--bg2); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.log-scroll { flex: 1; overflow-y: auto; padding: 14px; font-family: var(--font-mono); font-size: 11px; line-height: 1.7; background: var(--bg); color: var(--text2); }
+.log-entry { margin-bottom: 2px; display: flex; gap: 10px; }
+.log-ts { color: var(--text3); flex-shrink: 0; }
+.log-lvl { flex-shrink: 0; font-weight: 600; }
+.log-lvl.info { color: var(--blue2); }
+.log-lvl.ok   { color: var(--green2); }
+.log-lvl.warn { color: var(--amber); }
+.log-lvl.err  { color: var(--red2); }
+.log-msg { color: var(--text); word-break: break-all; }
+
+/* ── SPINNER ── */
+.spinner {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid rgba(255,255,255,.3); border-top-color: #fff;
+  border-radius: 50%; animation: spin .6s linear infinite; vertical-align: -2px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--bg4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border2); }
+
+/* ── AI KEY CONFIG STRIP ── */
+.ai-key-strip {
+  flex-shrink: 0; display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; background: var(--bg3); border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.ai-key-strip label { font-size: 11px; color: var(--text3); white-space: nowrap; }
+.ai-key-select, .ai-key-input {
+  background: var(--bg); border: 1px solid var(--border2); border-radius: var(--radius);
+  color: var(--text); font-family: var(--font-sans); font-size: 11px; padding: 3px 7px;
+  outline: none;
+}
+.ai-key-select:focus, .ai-key-input:focus { border-color: var(--green); }
+.ai-key-input { flex: 1; min-width: 120px; }
+.ai-key-btn {
+  font-size: 11px; padding: 3px 9px; border-radius: var(--radius); cursor: pointer;
+  border: 1px solid var(--border2); background: var(--bg3); color: var(--text2);
+  white-space: nowrap; transition: all .1s;
+}
+.ai-key-btn:hover { border-color: var(--green); color: var(--green2); }
+.ai-key-btn.saved { border-color: var(--green); color: var(--green2); background: var(--green-bg); }
+.ai-key-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--bg4); flex-shrink: 0; }
+.ai-key-dot.ok { background: var(--green); }
+#fileInput { display: none; }
+</style>
+</head>
+<body>
+
+<!-- ── HEADER ── -->
+<div class="app-header">
+  <div class="app-brand">
+    <span class="app-logo">RECON</span>
+    <span class="app-name">Pentest Data Sanitizer</span>
+    <span class="app-version">v8</span>
+  </div>
+  <span class="app-tagline">100% local · nothing leaves your browser</span>
+</div>
+
+<!-- ── TABS ── -->
+<div class="tab-bar">
+  <button class="tab-btn active" onclick="showTab('sanitize')">Sanitize</button>
+  <button class="tab-btn" onclick="showTab('ai')">AI Analysis</button>
+  <button class="tab-btn" onclick="showTab('log')">Session Log</button>
+</div>
+
+<!-- ── CONTEXT MENU ── -->
+<div id="ctx-menu">
+  <div class="ctx-header" id="ctx-label">selected text</div>
+  <div class="ctx-item" onclick="ctxRedactAll()">
+    <span class="ci-icon">✂</span>
+    <div><div class="ci-main">Redact ALL instances</div><div class="ci-sub">replace every occurrence in output</div></div>
+  </div>
+  <div class="ctx-item" onclick="ctxRedactOne()">
+    <span class="ci-icon">✏</span>
+    <div><div class="ci-main">Redact this instance only</div><div class="ci-sub">replace just this selection</div></div>
+  </div>
+  <div class="ctx-item ctx-cancel" onclick="hideCtx()">
+    <span class="ci-icon">✕</span>
+    <div><div class="ci-main">Cancel</div></div>
+  </div>
+</div>
+
+<!-- ══════════════════ SANITIZE PANE ══════════════════ -->
+<div class="app-body">
+<div id="pane-sanitize" class="tab-pane active">
+<div class="sanitize-layout">
+
+  <!-- INPUT COL -->
+  <div class="editor-col">
+    <div class="pane-header">
+      <span class="pane-label">Input</span>
+      <div class="pane-actions">
+        <label for="fileInput" class="btn" style="cursor:pointer"><span class="btn-icon">↑</span> Upload</label>
+        <input type="file" id="fileInput" accept=".txt,.log,.xml,.json,.html,.nmap,.gnmap,.csv" onchange="loadFile(event)">
+        <button class="btn" onclick="copyRaw(this)"><span class="btn-icon">⧉</span> Copy</button>
+        <button class="btn" onclick="clearAll()">Clear</button>
+        <button class="btn green" onclick="sanitize()">Sanitize →</button>
+      </div>
+    </div>
+    <textarea class="raw" id="rawInput" placeholder="Paste pentest output here — nmap scans, HTTP headers, Burp intercepts, dig/nslookup, shell output, cookies, anything.
+
+Only IP addresses, domains, hostnames, MAC addresses, FQDNs, and cookies will be auto-redacted.
+
+Select any text in the output to manually redact it. Use ✏ Edit to freely edit the output."></textarea>
+  </div>
+
+  <!-- OUTPUT COL -->
+  <div class="editor-col" id="outCol">
+    <div class="pane-header">
+      <span class="pane-label">Sanitized Output</span>
+      <div class="pane-actions">
+        <button class="btn" id="editBtn" onclick="toggleEditMode()"><span class="btn-icon">✏</span> Edit</button>
+        <button class="btn" onclick="copyOutput(this)"><span class="btn-icon">&#x29C9;</span> Copy</button>
+        <button class="btn" onclick="downloadOutput()"><span class="btn-icon">&#x2193;</span> Download</button>
+        <button class="btn blue" onclick="toggleAIPanel()" id="aiPanelBtn">&#x1F916; Ask AI</button>
+      </div>
+    </div>
+    <div class="edit-banner" id="editBanner">
+      ✏ <strong>Edit mode</strong> &mdash; directly edit the sanitized output &nbsp;&middot;&nbsp; <a onclick="toggleEditMode()">Done editing</a>
+    </div>
+    <div class="output-wrap">
+      <div class="output-scroll" id="outputArea" title="Select any text to redact it. Use ✏ Edit to directly edit the output.">
+        <div class="empty-state">
+          <div class="es-icon">&#x1F6E1;</div>
+          <div class="es-label">sanitized output will appear here</div>
+          <div class="es-legend">
+            <span class="hi hi-ip">IP / IPv6</span>
+            <span class="hi hi-dom">domain / FQDN</span>
+            <span class="hi hi-mac">MAC</span>
+            <span class="hi hi-cook">cookie / token</span>
+            <span class="hi hi-man">manual</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- RESIZE HANDLE -->
+      <div class="resize-handle" id="resizeHandle"></div>
+
+      <!-- AI CHAT PANEL -->
+      <div class="ai-chat-panel collapsed" id="aiChatPanel">
+        <div class="ai-chat-header" onclick="toggleAIPanel()">
+          <div class="ai-chat-header-left">
+            <span class="ai-chat-badge">AI</span>
+            <span class="ai-chat-title">Ask about sanitized output</span>
+            <span id="aiChatStatus" style="font-size:10px;color:var(--text3);font-family:var(--font-mono)"></span>
+          </div>
+          <div class="ai-chat-header-right">
+            <button class="btn" style="font-size:10px;padding:2px 7px" onclick="event.stopPropagation();clearAIChat()">Clear</button>
+            <span class="ai-chat-collapse" id="aiCollapseIcon">&#x25B2;</span>
+          </div>
+        </div>
+        <!-- AI KEY CONFIG STRIP -->
+        <div class="ai-key-strip" id="aiKeyStrip" style="display:none">
+          <label>Provider:</label>
+          <select class="ai-key-select" id="chatProvider" onchange="onProviderChange()">
+            <option value="anthropic">Claude (Anthropic)</option>
+            <option value="openai">ChatGPT (OpenAI)</option>
+            <option value="gemini">Gemini (Google)</option>
+            <option value="grok">Grok (xAI)</option>
+          </select>
+          <select class="ai-key-select" id="chatModel" style="max-width:200px"></select>
+          <input class="ai-key-input" type="password" id="chatApiKey" placeholder="Paste API key…" oninput="onKeyInput()">
+          <button class="ai-key-btn" id="chatSaveBtn" onclick="saveChatKey()">Save</button>
+          <div class="ai-key-dot" id="chatKeyDot"></div>
+          <span style="font-size:10px;color:var(--text3)" id="chatKeyLabel">No key</span>
+        </div>
+        <div class="ai-chat-presets" id="aiPresets" style="display:none">
+          <button class="ai-preset-btn" onclick="usePreset('vuln')">Vulnerabilities</button>
+          <button class="ai-preset-btn" onclick="usePreset('cve')">CVEs</button>
+          <button class="ai-preset-btn" onclick="usePreset('ports')">Port risks</button>
+          <button class="ai-preset-btn" onclick="usePreset('attack')">Attack vectors</button>
+          <button class="ai-preset-btn" onclick="usePreset('headers')">HTTP headers</button>
+          <button class="ai-preset-btn" onclick="usePreset('summary')">Exec summary</button>
+          <button class="ai-preset-btn" onclick="usePreset('next')">Next steps</button>
+        </div>
+        <div class="ai-chat-messages" id="aiChatMessages"></div>
+        <div class="ai-chat-input-row" id="aiChatInputRow" style="display:none">
+          <textarea class="ai-chat-input" id="aiChatInput" placeholder="Ask anything about the sanitized output... (Enter to send, Shift+Enter for newline)" rows="1"></textarea>
+          <button class="ai-send-btn" id="aiSendBtn" onclick="sendAIMessage()">Send</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+
+    <!-- detection rules -->
+    <div class="sb-section">
+      <div class="sb-title">Auto-Redact Rules</div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="toggle-dot" style="background:var(--hi-ip-t)"></span>IPv4 addresses</span>
+        <div class="toggle-switch on" id="tog-ipv4" onclick="toggleRule('ipv4',this)"><div class="toggle-knob"></div></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="toggle-dot" style="background:var(--hi-ip-t)"></span>IPv6 addresses</span>
+        <div class="toggle-switch on" id="tog-ipv6" onclick="toggleRule('ipv6',this)"><div class="toggle-knob"></div></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="toggle-dot" style="background:var(--hi-dom-t)"></span>Domains / FQDNs</span>
+        <div class="toggle-switch on" id="tog-domain" onclick="toggleRule('domain',this)"><div class="toggle-knob"></div></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="toggle-dot" style="background:var(--hi-dom-t)"></span>Hostnames (.htb .lab .local…)</span>
+        <div class="toggle-switch on" id="tog-host" onclick="toggleRule('host',this)"><div class="toggle-knob"></div></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="toggle-dot" style="background:var(--hi-mac-t)"></span>MAC addresses</span>
+        <div class="toggle-switch on" id="tog-mac" onclick="toggleRule('mac',this)"><div class="toggle-knob"></div></div>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label"><span class="toggle-dot" style="background:var(--hi-cook-t)"></span>Cookies / Bearer tokens</span>
+        <div class="toggle-switch on" id="tog-cookie" onclick="toggleRule('cookie',this)"><div class="toggle-knob"></div></div>
+      </div>
+    </div>
+
+    <!-- stats -->
+    <div class="sb-section">
+      <div class="sb-title">Stats <span class="sb-count" id="totalCount">0</span></div>
+      <div class="stats-grid" id="statsGrid">
+        <span class="stat-chip" style="background:var(--hi-ip);color:var(--hi-ip-t);border-color:var(--hi-ip-t)22" id="st-ipv4">IPv4 0</span>
+        <span class="stat-chip" style="background:var(--hi-ip);color:var(--hi-ip-t);border-color:var(--hi-ip-t)22" id="st-ipv6">IPv6 0</span>
+        <span class="stat-chip" style="background:var(--hi-dom);color:var(--hi-dom-t);border-color:var(--hi-dom-t)22" id="st-domain">DOM 0</span>
+        <span class="stat-chip" style="background:var(--hi-dom);color:var(--hi-dom-t);border-color:var(--hi-dom-t)22" id="st-host">HOST 0</span>
+        <span class="stat-chip" style="background:var(--hi-mac);color:var(--hi-mac-t);border-color:var(--hi-mac-t)22" id="st-mac">MAC 0</span>
+        <span class="stat-chip" style="background:var(--hi-cook);color:var(--hi-cook-t);border-color:var(--hi-cook-t)22" id="st-cookie">COOKIE 0</span>
+        <span class="stat-chip" style="background:var(--hi-man);color:var(--hi-man-t);border-color:var(--hi-man-t)22" id="st-manual">MANUAL 0</span>
+      </div>
+    </div>
+
+    <!-- replacement map -->
+    <div class="sb-section" style="flex:1">
+      <div class="sb-title">Replacement Map <span class="sb-count" id="mapCount">0</span></div>
+      <div id="mapTable"><div class="map-empty">— run Sanitize to populate —</div></div>
+    </div>
+
+  </div>
+</div>
+</div>
+
+<!-- ══════════════════ AI ANALYSIS PANE ══════════════════ -->
+<div id="pane-ai" class="tab-pane">
+<div class="ai-pane">
+
+  <div class="ai-left">
+    <div class="card">
+      <div class="card-head">⚠ Pre-flight Checklist</div>
+      <div class="card-body">
+        <div class="warn-box">
+          <strong>Before sending to AI — verify the sanitized output:</strong><br>
+          ✓ &nbsp;No real IP addresses visible<br>
+          ✓ &nbsp;No real domain names or hostnames<br>
+          ✓ &nbsp;No credentials, hashes, or flags<br>
+          ✓ &nbsp;No client names or identifying info<br>
+          ✓ &nbsp;No MAC addresses or cookies<br><br>
+          Use <strong>✏ Edit</strong> or select text to redact anything the auto-rules missed.
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <button class="btn" onclick="showTab('sanitize')">← Back to Sanitize</button>
+          <button class="btn green" onclick="confirmAndRun()" id="runBtn">Send to AI →</button>
+          <label style="font-size:11px;color:var(--text3);display:flex;align-items:center;gap:5px;cursor:pointer">
+            <input type="checkbox" id="confirmCheck" onchange="updateRunBtn()"> I have verified the output is fully redacted
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">🤖 AI Provider</div>
+      <div class="card-body">
+        <div class="ai-form-row">
+          <label>Provider</label>
+          <select class="ai-select" id="aiProvider" onchange="updateProviderUI()">
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai">OpenAI (ChatGPT)</option>
+            <option value="gemini">Google Gemini</option>
+            <option value="grok">xAI (Grok)</option>
+          </select>
+        </div>
+        <div class="ai-form-row" id="modelRow">
+          <label>Model</label>
+          <select class="ai-select" id="aiModel"></select>
+        </div>
+        <div class="ai-form-row" id="endpointRow" style="display:none">
+          <label>Endpoint</label>
+          <input class="ai-input" id="customEndpoint" placeholder="https://api.example.com/v1/chat/completions">
+        </div>
+        <div class="ai-form-row">
+          <label>API Key</label>
+          <input class="ai-input" type="password" id="apiKey" placeholder="Paste your API key…">
+        </div>
+        <div class="key-status"><div class="ksdot" id="ksDot"></div><span id="ksText">No key saved</span></div>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <button class="btn green" onclick="saveKey()" style="font-size:11px;padding:4px 10px">Save key</button>
+          <button class="btn" onclick="clearKey()" style="font-size:11px;padding:4px 10px">Clear</button>
+        </div>
+        <p style="margin-top:10px;font-size:10px;color:var(--text3)">Key stored in session memory only. Never persisted to disk or sent anywhere except the chosen AI provider.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">📋 Manual workflow (no API key needed)</div>
+      <div class="card-body">
+        <p>Copy the sanitized output and paste it directly into any AI chat — Claude.ai, ChatGPT, Gemini, etc.</p>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn" onclick="copyOutputFromAI(this)">⧉ Copy sanitized output</button>
+          <button class="btn" onclick="downloadOutput()">↓ Download .txt</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ai-right">
+    <div class="card">
+      <div class="card-head">💬 Prompt</div>
+      <div class="card-body">
+        <div class="preset-grid">
+          <button class="preset-btn" onclick="setPreset('vuln')">Vulnerabilities</button>
+          <button class="preset-btn" onclick="setPreset('cve')">CVE lookup</button>
+          <button class="preset-btn" onclick="setPreset('headers')">HTTP headers</button>
+          <button class="preset-btn" onclick="setPreset('ports')">Port risks</button>
+          <button class="preset-btn" onclick="setPreset('attack')">Attack vectors</button>
+          <button class="preset-btn" onclick="setPreset('summary')">Exec summary</button>
+          <button class="preset-btn" onclick="setPreset('next')">Next steps</button>
+        </div>
+        <textarea class="ai-textarea" id="aiPrompt" placeholder="Type your question, or pick a preset above…"></textarea>
+        <div id="aiResponse" style="display:none" class="ai-response"></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════ LOG PANE ══════════════════ -->
+<div id="pane-log" class="tab-pane">
+<div class="log-pane">
+  <div class="log-toolbar">
+    <span style="font-size:11px;color:var(--text2);font-family:var(--font-mono)">Session Log</span>
+    <div style="flex:1"></div>
+    <button class="btn" onclick="copyLog(this)" style="font-size:11px;padding:4px 9px">⧉ Copy log</button>
+    <button class="btn" onclick="downloadLog()" style="font-size:11px;padding:4px 9px">↓ Download</button>
+    <button class="btn" onclick="clearLog()" style="font-size:11px;padding:4px 9px">Clear</button>
+  </div>
+  <div class="log-scroll" id="logArea"></div>
+</div>
+</div>
+
+</div><!-- app-body -->
+
+<script>
+'use strict';
+
+// ── STATE ──────────────────────────────────────────────────────────────────────
+const rules = { ipv4:true, ipv6:true, domain:true, host:true, mac:true, cookie:true };
+const maps  = { ipv4:{}, ipv6:{}, domain:{}, host:{}, mac:{}, cookie:{}, manual:{} };
+const ctrs  = { ipv4:0,  ipv6:0,  domain:0, host:0,  mac:0,  cookie:0, manual:0 };
+let lastSanitized = '';
+let savedRange = null, savedText = '';
+let apiKey = '';
+const logEntries = [];
+
+// ── LOGGING ───────────────────────────────────────────────────────────────────
+function log(level, msg) {
+  const ts = new Date().toISOString().replace('T',' ').slice(0,19);
+  logEntries.push({ ts, level, msg });
+  const el = document.getElementById('logArea');
+  const div = document.createElement('div');
+  div.className = 'log-entry';
+  div.innerHTML = `<span class="log-ts">${ts}</span><span class="log-lvl ${level}">[${level.toUpperCase()}]</span><span class="log-msg">${escHtml(msg)}</span>`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+}
+
+// ── SECURITY HELPERS ──────────────────────────────────────────────────────────
+// Strict HTML escaping — covers all injection vectors
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;')
+    .replace(/`/g, '&#x60;')
+    .replace(/\//g, '&#x2F;');
+}
+
+// Sanitize any user-supplied string — strip control chars, limit length
+function sanitizeInput(s, maxLen = 500000) {
+  if (typeof s !== 'string') return '';
+  // Remove null bytes and other dangerous control characters
+  s = s.replace(/\x00/g, '').replace(/[\x01-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
+  return s.slice(0, maxLen);
+}
+
+// Validate API key format before use (never execute/eval it)
+function validateApiKey(key, prov) {
+  if (!key || typeof key !== 'string') return false;
+  if (key.length < 10 || key.length > 512) return false;
+  // Only allow safe characters in API keys
+  if (!/^[A-Za-z0-9\-_.:]+$/.test(key)) return false;
+  return true;
+}
+
+// Safe URL builder — only allow whitelisted API endpoints
+const ALLOWED_API_HOSTS = [
+  'api.anthropic.com',
+  'api.openai.com',
+  'generativelanguage.googleapis.com',
+  'api.x.ai',
+];
+function isSafeApiUrl(url) {
+  try {
+    const u = new URL(url);
+    return u.protocol === 'https:' && ALLOWED_API_HOSTS.some(h => u.hostname === h);
+  } catch (_) { return false; }
+}
+
+// ── SELECT & REDACT — always on (no toggle needed) ───────────────────────────
+// selModeOn is kept as legacy flag but selection always works on output
+let selModeOn = true; // Always active — just select text to redact
+
+function toggleSelMode() {
+  // Legacy no-op kept for any residual calls; selection always works
+}
+
+function hideCtx() {
+  document.getElementById('ctx-menu').style.display = 'none';
+  savedRange = null; savedText = '';
+  try { window.getSelection().removeAllRanges(); } catch(_) {}
+}
+
+// Show context menu whenever user selects text in output area (no mode needed)
+document.addEventListener('mouseup', e => {
+  // Don't interfere when clicking inside the context menu itself
+  if (document.getElementById('ctx-menu').contains(e.target)) return;
+
+  setTimeout(() => {
+    const sel = window.getSelection();
+    if (!sel || sel.isCollapsed || !sel.toString().trim()) return;
+    const area = document.getElementById('outputArea');
+    if (!area.contains(sel.anchorNode) && !area.contains(sel.focusNode)) return;
+
+    // Security: strip any injected markup from selection text
+    savedText = sanitizeInput(sel.toString().trim(), 2000);
+    if (!savedText) return;
+
+    savedRange = sel.getRangeAt(0).cloneRange();
+    const lbl = savedText.length > 40 ? savedText.slice(0, 40) + '…' : savedText;
+    // Use textContent not innerHTML to prevent XSS
+    document.getElementById('ctx-label').textContent = '"' + lbl + '"';
+    const menu = document.getElementById('ctx-menu');
+    menu.style.display = 'block';
+    let x = e.clientX + 4, y = e.clientY + 8;
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    if (x + mw > window.innerWidth - 8) x = window.innerWidth - mw - 8;
+    if (y + mh > window.innerHeight - 8) y = e.clientY - mh - 4;
+    menu.style.left = x + 'px'; menu.style.top = y + 'px';
+  }, 10);
+});
+
+document.addEventListener('mousedown', e => {
+  if (document.getElementById('ctx-menu').style.display === 'block' &&
+      !document.getElementById('ctx-menu').contains(e.target)) hideCtx();
+}, true);
+
+document.addEventListener('scroll', hideCtx, true);
+
+// ── EDIT MODE ─────────────────────────────────────────────────────────────────
+let editModeOn = false;
+
+function toggleEditMode() {
+  editModeOn = !editModeOn;
+  const area       = document.getElementById('outputArea');
+  const btn        = document.getElementById('editBtn');
+  const editBanner = document.getElementById('editBanner');
+
+  if (editModeOn) {
+    area.contentEditable = 'true';
+    area.classList.add('sel-mode');
+    btn.innerHTML = '<span class="btn-icon">✓</span> Done';
+    btn.classList.add('active');
+    editBanner.classList.add('on');
+    area.focus();
+    log('info', 'Edit mode activated — direct output editing enabled');
+  } else {
+    area.contentEditable = 'false';
+    area.classList.remove('sel-mode');
+    btn.innerHTML = '<span class="btn-icon">✏</span> Edit';
+    btn.classList.remove('active');
+    editBanner.classList.remove('on');
+    // Sync lastSanitized after edits
+    syncLastSanitized();
+    log('info', 'Edit mode exited — output synced');
+  }
+}
+
+// Prevent paste of rich HTML in edit mode — only allow plain text
+document.addEventListener('paste', e => {
+  const area = document.getElementById('outputArea');
+  if (document.activeElement !== area && !area.contains(document.activeElement)) return;
+  if (area.contentEditable !== 'true') return;
+  e.preventDefault();
+  // Only paste plain text, sanitized
+  const plain = sanitizeInput(e.clipboardData.getData('text/plain'), 200000);
+  document.execCommand('insertText', false, plain);
+}, true);
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function goc(mk, ck, orig, fmt) {
+  if (maps[mk][orig] === undefined) { ctrs[ck]++; maps[mk][orig] = fmt(ctrs[ck]); }
+  return maps[mk][orig];
+}
+function syncLastSanitized() {
+  lastSanitized = document.getElementById('outputArea').innerText || document.getElementById('outputArea').textContent;
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+function showTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('pane-' + name).classList.add('active');
+  document.querySelectorAll('.tab-btn')[['sanitize','ai','log'].indexOf(name)].classList.add('active');
+}
+
+// ── TOGGLE RULES ──────────────────────────────────────────────────────────────
+function toggleRule(r, el) { rules[r] = !rules[r]; el.classList.toggle('on', rules[r]); }
+
+// ── FILE LOAD / CLEAR ─────────────────────────────────────────────────────────
+function loadFile(e) {
+  const f = e.target.files[0]; if (!f) return;
+  // Limit file size to 5MB
+  if (f.size > 5 * 1024 * 1024) {
+    alert('File too large. Maximum size is 5MB.');
+    log('warn', `File rejected — too large: ${f.name} (${f.size} bytes)`);
+    e.target.value = '';
+    return;
+  }
+  const r = new FileReader();
+  r.onload = ev => {
+    const content = sanitizeInput(ev.target.result, 500000);
+    document.getElementById('rawInput').value = content;
+    log('info', `File loaded: ${escHtml(f.name)} (${f.size} bytes)`);
+  };
+  r.readAsText(f); e.target.value = '';
+}
+
+function clearAll() {
+  document.getElementById('rawInput').value = '';
+  resetOutput();
+  log('info', 'Workspace cleared');
+}
+
+function resetOutput() {
+  document.getElementById('outputArea').innerHTML = `<div class="empty-state"><div class="es-icon">🛡</div><div class="es-label">sanitized output will appear here</div><div class="es-legend"><span class="hi hi-ip">IP / IPv6</span><span class="hi hi-dom">domain / FQDN</span><span class="hi hi-mac">MAC</span><span class="hi hi-cook">cookie / token</span><span class="hi hi-man">manual</span></div></div>`;
+  Object.keys(maps).forEach(k => { maps[k] = {}; ctrs[k] = 0; });
+  lastSanitized = '';
+  renderMap(); renderStats();
+}
+
+// ── COPY / DOWNLOAD ───────────────────────────────────────────────────────────
+function copyRaw(btn) {
+  const v = document.getElementById('rawInput').value;
+  if (!v) return;
+  navigator.clipboard.writeText(v).then(() => flash(btn, '✓ Copied'));
+}
+
+function copyOutput(btn) {
+  if (!lastSanitized) { flash(btn, '— nothing yet'); return; }
+  navigator.clipboard.writeText(lastSanitized).then(() => {
+    flash(btn, '✓ Copied');
+    log('info', 'Sanitized output copied to clipboard');
+  });
+}
+
+function copyOutputFromAI(btn) { copyOutput(btn); }
+
+function downloadOutput() {
+  if (!lastSanitized) { alert('Sanitize first.'); return; }
+  const blob = new Blob([lastSanitized], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `sanitized_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click(); URL.revokeObjectURL(a.href);
+  log('ok', 'Sanitized output downloaded');
+}
+
+function flash(btn, msg) {
+  const orig = btn.innerHTML; btn.innerHTML = msg;
+  setTimeout(() => btn.innerHTML = orig, 1600);
+}
+
+// ── SANITIZE ──────────────────────────────────────────────────────────────────
+function sanitize() {
+  // preserve manual redactions across re-runs
+  const savedManual = { ...maps.manual }, savedManualCtr = ctrs.manual;
+  Object.keys(maps).forEach(k => { maps[k] = {}; ctrs[k] = 0; });
+  maps.manual = savedManual; ctrs.manual = savedManualCtr;
+
+  const raw = sanitizeInput(document.getElementById('rawInput').value);
+  if (!raw.trim()) return;
+
+  log('info', `Sanitize started — ${raw.length} chars`);
+
+  let text = raw;
+  const PH = {}; let pid = 0;
+  const hold = val => { const k = '\x01' + (pid++) + '\x01'; PH[k] = val; return k; };
+
+  // ── Cookies / Bearer tokens (run first — values may contain IP-like strings)
+  if (rules.cookie) {
+    text = text.replace(/(Set-Cookie\s*:\s*)([^\r\n;]{4,})/gi, (m, lbl, val) =>
+      hold('<span class="hi hi-cook">' + escHtml(lbl) + goc('cookie','cookie', val.trim(), n => `[COOKIE-${n}]`) + '</span>'));
+    text = text.replace(/((?:^|\n)\s*Cookie\s*:\s*)([^\r\n]{4,})/gi, (m, lbl, val) =>
+      hold('<span class="hi hi-cook">' + escHtml(lbl) + goc('cookie','cookie', val.trim(), n => `[COOKIE-${n}]`) + '</span>'));
+    text = text.replace(/\b(Bearer|Token)\s+([A-Za-z0-9\-._~+/]{10,}={0,2})\b/g, (m, type, val) =>
+      hold('<span class="hi hi-cook">' + type + ' ' + goc('cookie','cookie', val, n => `[TOKEN-${n}]`) + '</span>'));
+  }
+
+  // ── IPv6 (before IPv4 so colons don't confuse)
+  // Guard: skip time strings like 14:36:06 (HH:MM:SS — all-decimal, exactly 3 groups ≤2 chars)
+  // Guard: require at least one segment with a hex letter OR a segment ≥3 chars (real IPv6)
+  function isTimeString(m) { return /^\d{1,2}:\d{2}:\d{2}$/.test(m); }
+  function looksLikeIPv6(m) {
+    if (isTimeString(m)) return false;
+    const segs = m.split(':').filter(s => s.length > 0);
+    return segs.some(s => s.length >= 3 || /[a-fA-F]/.test(s));
+  }
+  if (rules.ipv6) {
+    text = text.replace(/\b(?:[0-9a-fA-F]{1,4}:){2,7}[0-9a-fA-F]{0,4}\b(?!\.)/g, m => {
+      if (!looksLikeIPv6(m)) return m; // skip time strings and other false positives
+      return hold('<span class="hi hi-ip">' + goc('ipv6','ipv6', m.toLowerCase(), n => `[IPv6-${n}]`) + '</span>');
+    });
+  }
+
+  // ── IPv4
+  // Step A: protect version strings in labelled context (e.g. "CLRVersion  2.0.50727.5420",
+  //         "SerializationVersion  1.1.0.1") — hold as plain text before IP matching
+  text = text.replace(/\b(\w*[Vv]ersion\w*\s+)(\d+\.\d+[\.\d]+)/g, (m, lbl, ver) =>
+    lbl + hold(ver));
+  // Step B: match IPv4. Lookbehind/ahead blocks mid-version-string matches (2.0.50727.5420).
+  if (rules.ipv4) {
+    text = text.replace(/(?<![.\d])\b((?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?))\b(?![.\d])/g, m => {
+      const priv = m.startsWith('10.') || m.startsWith('192.168.') || /^172\.(1[6-9]|2\d|3[01])\./.test(m) || m === '127.0.0.1' || m === '0.0.0.0';
+      return hold('<span class="hi hi-ip">' + goc('ipv4','ipv4', m, n => `[${priv?'PRIV':'PUB'}-IP-${n}]`) + '</span>');
+    });
+  }
+
+  // ── MAC addresses
+  if (rules.mac) {
+    text = text.replace(/\b(?:[0-9a-fA-F]{2}[:\-]){5}[0-9a-fA-F]{2}\b/g, m =>
+      hold('<span class="hi hi-mac">' + goc('mac','mac', m.toUpperCase(), n => `[MAC-${n}]`) + '</span>'));
+  }
+
+  // ── Domains / FQDNs / pentest hostnames
+  // Only match strings with a dot followed by a known TLD or pentest suffix
+  // Explicitly exclude script extensions (.py .sh .rb .js etc.) to avoid mangling filenames
+  const scriptExts = /\.(py|sh|rb|pl|ps1|bat|cmd|php|js|ts|go|rs|exe|jar|bin|c|cpp|h|cs|java|kt|swift|lua|r|m|sql|md|txt|log|xml|json|yaml|yml|toml|cfg|conf|ini|env)$/i;
+
+  const tldPat = /\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+)(com|net|org|io|co|uk|de|fr|in|au|ca|jp|edu|gov|mil|int|biz|info|name|local|internal|corp|lan|arpa|xyz|tech|cloud|app|site|online|store|shop|me|us|eu|ru|cn|br|it|es|nl|pl|se|no|fi|dk|be|ch|at|nz|za|sg|hk|tw|kr|mx|ar)\b/gi;
+  const htbPat  = /\b((?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+)(htb|lab|ctf|thm|hack|pwn|test|dev|staging|prod|home|localdomain|intranet|private)\b/gi;
+
+  if (rules.domain) {
+    text = text.replace(tldPat, m => {
+      if (scriptExts.test(m)) return m;
+      return hold('<span class="hi hi-dom">' + goc('domain','domain', m.toLowerCase(), n => `[DOMAIN-${n}]`) + '</span>');
+    });
+  }
+
+  if (rules.host) {
+    text = text.replace(htbPat, m => {
+      if (scriptExts.test(m)) return m;
+      return hold('<span class="hi hi-dom">' + goc('host','host', m.toLowerCase(), n => `[HOST-${n}]`) + '</span>');
+    });
+  }
+
+  // ── Escape remaining plain text, restore placeholders
+  const parts = text.split(/(\x01\d+\x01)/);
+  text = parts.map(p => /^\x01\d+\x01$/.test(p) ? p : escHtml(p)).join('');
+  Object.entries(PH).forEach(([k, v]) => { text = text.split(k).join(v); });
+
+  // ── Re-apply manual redactions on top
+  Object.entries(maps.manual).forEach(([orig, ph]) => {
+    if (!orig || !ph) return;
+    const safe = escHtml(orig).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    text = text.replace(new RegExp(safe, 'g'), '<span class="hi hi-man">' + ph + '</span>');
+  });
+
+  document.getElementById('outputArea').innerHTML = text || '<div class="empty-state"><div class="es-label">no output</div></div>';
+  syncLastSanitized();
+  renderMap();
+  renderStats();
+
+  const total = Object.values(ctrs).reduce((a,b) => a+b, 0);
+  log('ok', `Sanitize complete — ${total} items redacted (IPv4:${ctrs.ipv4} IPv6:${ctrs.ipv6} DOM:${ctrs.domain} HOST:${ctrs.host} MAC:${ctrs.mac} COOKIE:${ctrs.cookie} MANUAL:${ctrs.manual})`);
+}
+
+// ── RENDER MAP & STATS ────────────────────────────────────────────────────────
+function renderStats() {
+  document.getElementById('st-ipv4').textContent  = 'IPv4 '  + ctrs.ipv4;
+  document.getElementById('st-ipv6').textContent  = 'IPv6 '  + ctrs.ipv6;
+  document.getElementById('st-domain').textContent= 'DOM '   + ctrs.domain;
+  document.getElementById('st-host').textContent  = 'HOST '  + ctrs.host;
+  document.getElementById('st-mac').textContent   = 'MAC '   + ctrs.mac;
+  document.getElementById('st-cookie').textContent= 'COOKIE '+ ctrs.cookie;
+  document.getElementById('st-manual').textContent= 'MANUAL '+ ctrs.manual;
+  const total = Object.values(ctrs).reduce((a,b) => a+b, 0);
+  document.getElementById('totalCount').textContent = total;
+}
+
+function renderMap() {
+  const typeInfo = {
+    ipv4:   { lbl:'IPv4',   bg:'var(--hi-ip)',  fg:'var(--hi-ip-t)'  },
+    ipv6:   { lbl:'IPv6',   bg:'var(--hi-ip)',  fg:'var(--hi-ip-t)'  },
+    domain: { lbl:'DOM',    bg:'var(--hi-dom)', fg:'var(--hi-dom-t)' },
+    host:   { lbl:'HOST',   bg:'var(--hi-dom)', fg:'var(--hi-dom-t)' },
+    mac:    { lbl:'MAC',    bg:'var(--hi-mac)', fg:'var(--hi-mac-t)' },
+    cookie: { lbl:'COOKIE', bg:'var(--hi-cook)',fg:'var(--hi-cook-t)'},
+    manual: { lbl:'MAN',    bg:'var(--hi-man)', fg:'var(--hi-man-t)' },
+  };
+  const rows = [];
+  Object.entries(maps).forEach(([type, map]) => {
+    const { lbl, bg, fg } = typeInfo[type] || { lbl:type.toUpperCase(), bg:'var(--bg3)', fg:'var(--text)' };
+    Object.entries(map).forEach(([orig, rep]) => {
+      rows.push(`<div class="map-entry">
+        <span class="map-badge" style="background:${bg};color:${fg}">${lbl}</span>
+        <span class="map-orig">${escHtml(String(orig).slice(0,44))}</span>
+        <span class="map-arrow"> → </span>
+        <span class="map-rep">${escHtml(rep)}</span>
+      </div>`);
+    });
+  });
+  const el = document.getElementById('mapTable');
+  el.innerHTML = rows.length ? rows.join('') : '<div class="map-empty">— empty —</div>';
+  document.getElementById('mapCount').textContent = rows.length;
+}
+
+// ── REDACT ACTIONS ────────────────────────────────────────────────────────────
+// Redact ALL instances of savedText across the whole output
+function ctxRedactAll() {
+  if (!savedText) { hideCtx(); return; }
+  ctrs.manual++;
+  const ph = '[REDACTED-' + ctrs.manual + ']';
+  maps.manual[savedText] = ph;
+  log('info', `Manual redact ALL: "${savedText.slice(0,40)}" → ${ph}`);
+  // Walk all text nodes and replace
+  replaceAllTextInDom(document.getElementById('outputArea'), savedText, ph);
+  hideCtx();
+  syncLastSanitized();
+  renderMap(); renderStats();
+}
+
+// Redact only the selected range
+function ctxRedactOne() {
+  if (!savedRange || !savedText) { hideCtx(); return; }
+  ctrs.manual++;
+  const ph = '[REDACTED-' + ctrs.manual + ']';
+  maps.manual[savedText] = ph;
+  log('info', `Manual redact ONE: "${savedText.slice(0,40)}" → ${ph}`);
+  try {
+    savedRange.deleteContents();
+    const span = document.createElement('span');
+    span.className = 'hi hi-man'; span.textContent = ph;
+    savedRange.insertNode(span);
+    window.getSelection().removeAllRanges();
+  } catch (_) {
+    replaceAllTextInDom(document.getElementById('outputArea'), savedText, ph);
+  }
+  hideCtx();
+  syncLastSanitized(); renderMap(); renderStats();
+}
+
+function replaceAllTextInDom(root, search, replacement) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null, false);
+  const nodes = [];
+  let n;
+  while ((n = walker.nextNode())) nodes.push(n);
+  nodes.forEach(tn => {
+    if (!tn.nodeValue.includes(search)) return;
+    const parts = tn.nodeValue.split(search);
+    const frag = document.createDocumentFragment();
+    parts.forEach((part, i) => {
+      if (part) frag.appendChild(document.createTextNode(part));
+      if (i < parts.length - 1) {
+        const span = document.createElement('span');
+        span.className = 'hi hi-man'; span.textContent = replacement;
+        frag.appendChild(span);
+      }
+    });
+    tn.parentNode.replaceChild(frag, tn);
+  });
+}
+
+// ── INLINE AI CHAT ─────────────────────────────────────────────────────────────
+let aiPanelOpen = false;
+let aiChatHistory = [];
+let aiIsThinking = false;
+
+// ── PROVIDER CONFIG ────────────────────────────────────────────────────────────
+const PROVIDERS = {
+  anthropic: {
+    label: 'Claude (Anthropic)',
+    models: [
+      { v: 'claude-sonnet-4-20250514', l: 'Claude Sonnet 4' },
+      { v: 'claude-opus-4-20250514',   l: 'Claude Opus 4' },
+      { v: 'claude-haiku-4-5-20251001',l: 'Claude Haiku 4.5' },
+    ],
+    keyHint: 'sk-ant-…',
+  },
+  openai: {
+    label: 'ChatGPT (OpenAI)',
+    models: [
+      { v: 'gpt-4o',       l: 'GPT-4o' },
+      { v: 'gpt-4o-mini',  l: 'GPT-4o mini' },
+      { v: 'o3-mini',      l: 'o3-mini' },
+      { v: 'o4-mini',      l: 'o4-mini' },
+    ],
+    keyHint: 'sk-…',
+  },
+  gemini: {
+    label: 'Gemini (Google)',
+    models: [
+      { v: 'gemini-2.5-flash-preview-05-20', l: 'Gemini 2.5 Flash' },
+      { v: 'gemini-2.5-pro-preview-05-06',   l: 'Gemini 2.5 Pro' },
+      { v: 'gemini-2.0-flash',               l: 'Gemini 2.0 Flash' },
+    ],
+    keyHint: 'AIza…',
+  },
+  grok: {
+    label: 'Grok (xAI)',
+    models: [
+      { v: 'grok-3',       l: 'Grok 3' },
+      { v: 'grok-3-mini',  l: 'Grok 3 Mini' },
+      { v: 'grok-2-1212',  l: 'Grok 2' },
+    ],
+    keyHint: 'xai-…',
+  },
+};
+
+// Session-only key store  { provider: { key, model } }
+const keyStore = {};
+
+function onProviderChange() {
+  const prov = document.getElementById('chatProvider').value;
+  populateModels(prov);
+  const saved = keyStore[prov];
+  const keyInput = document.getElementById('chatApiKey');
+  keyInput.value = saved ? '••••••••' : '';
+  keyInput.dataset.dirty = 'false';
+  refreshKeyStatus();
+}
+
+function onKeyInput() {
+  document.getElementById('chatApiKey').dataset.dirty = 'true';
+  refreshKeyStatus();
+}
+
+function populateModels(prov) {
+  const sel = document.getElementById('chatModel');
+  sel.innerHTML = '';
+  (PROVIDERS[prov]?.models || []).forEach(m => {
+    const o = document.createElement('option');
+    o.value = m.v; o.textContent = m.l;
+    sel.appendChild(o);
+  });
+  // restore saved model choice
+  if (keyStore[prov]?.model) sel.value = keyStore[prov].model;
+}
+
+function saveChatKey() {
+  const prov  = document.getElementById('chatProvider').value;
+  const model = document.getElementById('chatModel').value;
+  const inp   = document.getElementById('chatApiKey');
+  const dirty = inp.dataset.dirty !== 'false';
+  const rawKey = inp.value.trim();
+  if (dirty && rawKey && !rawKey.startsWith('•')) {
+    if (!validateApiKey(rawKey, prov)) {
+      addSystemMsg('⚠ API key contains invalid characters. Please check and re-enter.');
+      log('warn', 'API key rejected — invalid format for provider: ' + prov);
+      return;
+    }
+    keyStore[prov] = { key: rawKey, model };
+  } else if (keyStore[prov]) {
+    keyStore[prov].model = model; // update model even if key unchanged
+  }
+  inp.dataset.dirty = 'false';
+  if (keyStore[prov]?.key) inp.value = '••••••••';
+  refreshKeyStatus();
+  const btn = document.getElementById('chatSaveBtn');
+  btn.textContent = '✓ Saved';
+  btn.classList.add('saved');
+  setTimeout(() => { btn.textContent = 'Save'; btn.classList.remove('saved'); }, 1800);
+  log('info', `API key saved for provider: ${prov}`);
+}
+
+function refreshKeyStatus() {
+  const prov = document.getElementById('chatProvider').value;
+  const dot  = document.getElementById('chatKeyDot');
+  const lbl  = document.getElementById('chatKeyLabel');
+  if (keyStore[prov]?.key) {
+    dot.className = 'ai-key-dot ok';
+    lbl.textContent = PROVIDERS[prov].label + ' key active';
+  } else {
+    dot.className = 'ai-key-dot';
+    lbl.textContent = 'No key — enter one above';
+  }
+}
+
+function getActiveKey() {
+  const prov = document.getElementById('chatProvider').value;
+  return { prov, key: keyStore[prov]?.key || '', model: document.getElementById('chatModel').value };
+}
+
+// ── CALL HELPERS PER PROVIDER ──────────────────────────────────────────────────
+const PENTEST_SYSTEM = 'You are a senior penetration testing consultant. The user shares sanitized pentest output where all identifying info has been replaced with placeholders like [DOMAIN-1], [PRIV-IP-1] etc. Analyze for vulnerabilities, CVEs, misconfigurations, and attack paths. Be specific, structured, and actionable. Use markdown-style formatting when helpful (headers with ##, bullet points with -).';
+
+async function callAnthropic(key, model, messages) {
+  if (!validateApiKey(key, 'anthropic')) throw new Error('Invalid API key format.');
+  const url = 'https://api.anthropic.com/v1/messages';
+  if (!isSafeApiUrl(url)) throw new Error('Blocked: unsafe endpoint.');
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+    body: JSON.stringify({ model, max_tokens: 2000, system: PENTEST_SYSTEM, messages })
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(escHtml(d.error.message));
+  return d.content?.[0]?.text || '';
+}
+
+async function callOpenAI(key, model, messages) {
+  if (!validateApiKey(key, 'openai')) throw new Error('Invalid API key format.');
+  const url = 'https://api.openai.com/v1/chat/completions';
+  if (!isSafeApiUrl(url)) throw new Error('Blocked: unsafe endpoint.');
+  const oaiMsgs = [{ role: 'system', content: PENTEST_SYSTEM }, ...messages];
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify({ model, max_tokens: 2000, messages: oaiMsgs })
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(escHtml(d.error.message));
+  return d.choices?.[0]?.message?.content || '';
+}
+
+async function callGemini(key, model, messages) {
+  if (!validateApiKey(key, 'gemini')) throw new Error('Invalid API key format.');
+  // Build safe URL — key goes in query param but is validated above
+  const baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const url = baseUrl + '?key=' + encodeURIComponent(key);
+  if (!isSafeApiUrl(baseUrl)) throw new Error('Blocked: unsafe endpoint.');
+  const contents = messages.map(m => ({
+    role: m.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: m.content }]
+  }));
+  const systemInstruction = { parts: [{ text: PENTEST_SYSTEM }] };
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ system_instruction: systemInstruction, contents, generationConfig: { maxOutputTokens: 2000 } })
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(escHtml(d.error.message || d.error.status));
+  return d.candidates?.[0]?.content?.parts?.[0]?.text || '';
+}
+
+async function callGrok(key, model, messages) {
+  if (!validateApiKey(key, 'grok')) throw new Error('Invalid API key format.');
+  const url = 'https://api.x.ai/v1/chat/completions';
+  if (!isSafeApiUrl(url)) throw new Error('Blocked: unsafe endpoint.');
+  const grokMsgs = [{ role: 'system', content: PENTEST_SYSTEM }, ...messages];
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + key },
+    body: JSON.stringify({ model, max_tokens: 2000, messages: grokMsgs })
+  });
+  const d = await res.json();
+  if (d.error) throw new Error(escHtml(d.error.message));
+  return d.choices?.[0]?.message?.content || '';
+}
+
+async function dispatchAI(prov, key, model, messages) {
+  switch (prov) {
+    case 'anthropic': return callAnthropic(key, model, messages);
+    case 'openai':    return callOpenAI(key, model, messages);
+    case 'gemini':    return callGemini(key, model, messages);
+    case 'grok':      return callGrok(key, model, messages);
+    default: throw new Error('Unknown provider: ' + prov);
+  }
+}
+
+// ── CHAT UI ────────────────────────────────────────────────────────────────────
+const chatPresets = {
+  vuln:    'Analyze this sanitized pentest output for known vulnerabilities and misconfigurations. List by severity: Critical / High / Medium / Low.',
+  cve:     'Identify all software versions mentioned. For each, list known CVEs, CVSS scores, and whether they are actively exploited.',
+  headers: 'Audit all HTTP headers. List missing security headers (CSP, HSTS, X-Frame-Options, etc.), insecure values, and remediation steps.',
+  ports:   'Analyze all open ports and services. Which are high-risk? Which are commonly exploited? What should be firewalled or disabled?',
+  attack:  'Based on this data, what are the most likely attack vectors and exploitation paths? What would you prioritize?',
+  summary: 'Write a concise executive summary of the security posture. Use clear, non-technical language suitable for a C-level audience.',
+  next:    'Based on this reconnaissance data, suggest the most impactful next steps for a penetration tester. Prioritize by likelihood of success.',
+};
+
+function buildPresetButtons() {
+  const c = document.getElementById('aiPresets');
+  if (!c) return;
+  c.innerHTML = '';
+  Object.entries({ vuln:'Vulnerabilities', cve:'CVEs', ports:'Port risks', attack:'Attack vectors', headers:'HTTP headers', summary:'Exec summary', next:'Next steps' })
+    .forEach(([k, lbl]) => {
+      const b = document.createElement('button');
+      b.className = 'ai-preset-btn';
+      b.textContent = lbl;
+      b.onclick = () => usePreset(k);
+      c.appendChild(b);
+    });
+}
+
+function toggleAIPanel() {
+  aiPanelOpen = !aiPanelOpen;
+  const panel    = document.getElementById('aiChatPanel');
+  const icon     = document.getElementById('aiCollapseIcon');
+  const presets  = document.getElementById('aiPresets');
+  const inputRow = document.getElementById('aiChatInputRow');
+  const keyStrip = document.getElementById('aiKeyStrip');
+  if (aiPanelOpen) {
+    panel.classList.remove('collapsed');
+    icon.textContent = '\u25BC';
+    presets.style.display = 'flex';
+    inputRow.style.display = 'flex';
+    keyStrip.style.display = 'flex';
+    buildPresetButtons();
+    // init model dropdown on first open
+    if (!document.getElementById('chatModel').options.length) {
+      onProviderChange();
+    }
+    if (aiChatHistory.length === 0) {
+      addSystemMsg(!lastSanitized.trim()
+        ? 'Sanitize some data first, then ask me anything about it.'
+        : 'Sanitized output loaded. Enter your API key above, pick a preset, or type a question.');
+    }
+    setTimeout(() => document.getElementById('aiChatInput').focus(), 100);
+  } else {
+    panel.classList.add('collapsed');
+    icon.textContent = '\u25B2';
+    presets.style.display = 'none';
+    inputRow.style.display = 'none';
+    keyStrip.style.display = 'none';
+  }
+}
+
+function addSystemMsg(text) {
+  const el = document.createElement('div');
+  el.className = 'ai-msg system';
+  el.textContent = text;
+  document.getElementById('aiChatMessages').appendChild(el);
+  scrollChat();
+}
+
+function addMsg(role, text) {
+  const el = document.createElement('div');
+  el.className = 'ai-msg ' + role;
+  el.textContent = text;
+  el.id = role === 'thinking' ? 'aiThinking' : '';
+  document.getElementById('aiChatMessages').appendChild(el);
+  scrollChat();
+  return el;
+}
+
+function scrollChat() {
+  const msgs = document.getElementById('aiChatMessages');
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function clearAIChat() {
+  aiChatHistory = [];
+  document.getElementById('aiChatMessages').innerHTML = '';
+  if (aiPanelOpen) {
+    addSystemMsg(!lastSanitized.trim()
+      ? 'Chat cleared. Sanitize some data first, then ask me anything about it.'
+      : 'Chat cleared. Ask a new question about the sanitized output.');
+  }
+}
+
+function usePreset(k) {
+  const q = chatPresets[k];
+  if (!q) return;
+  document.getElementById('aiChatInput').value = q;
+  document.getElementById('aiChatInput').focus();
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  // Init model dropdown silently (no strip shown yet)
+  populateModels('anthropic');
+  // Also init AI Analysis tab
+  updateProviderUI();
+  const inp = document.getElementById('aiChatInput');
+  if (inp) {
+    inp.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAIMessage(); }
+    });
+  }
+  initResizeDrag();
+});
+
+function initResizeDrag() {
+  const handle = document.getElementById('resizeHandle');
+  const panel  = document.getElementById('aiChatPanel');
+  if (!handle || !panel) return;
+  let startY, startH;
+  handle.addEventListener('mousedown', e => {
+    if (!aiPanelOpen) return;
+    startY = e.clientY; startH = panel.offsetHeight;
+    document.body.style.userSelect = 'none';
+    const onMove = ev => {
+      const delta = startY - ev.clientY;
+      panel.style.height = Math.max(150, Math.min(600, startH + delta)) + 'px';
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.userSelect = '';
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+}
+
+async function sendAIMessage() {
+  if (aiIsThinking) return;
+  if (!lastSanitized.trim()) {
+    addSystemMsg('No sanitized data yet — run Sanitize first, then ask your question.');
+    return;
+  }
+
+  const { prov, key, model } = getActiveKey();
+
+  // Check for key — first try session store, then fall through to claude.ai proxy
+  const usingProxy = !key && prov === 'anthropic';
+  if (!key && !usingProxy) {
+    addSystemMsg(`No API key for ${PROVIDERS[prov]?.label || prov}. Enter your key in the config strip above and click Save.`);
+    return;
+  }
+
+  const inp = document.getElementById('aiChatInput');
+  const question = sanitizeInput(inp.value.trim(), 10000);
+  if (!question) return;
+  inp.value = '';
+
+  addMsg('user', question);
+
+  const userContent = aiChatHistory.length === 0
+    ? `${question}\n\n--- SANITIZED PENTEST DATA ---\n${lastSanitized}`
+    : question;
+  aiChatHistory.push({ role: 'user', content: userContent });
+
+  aiIsThinking = true;
+  document.getElementById('aiSendBtn').disabled = true;
+  document.getElementById('aiChatStatus').textContent = 'thinking…';
+  const thinkEl = addMsg('thinking', `Asking ${PROVIDERS[prov]?.label || prov}…`);
+
+  try {
+    let reply;
+    if (usingProxy) {
+      // claude.ai artifact proxy — no key needed
+      const proxyUrl = 'https://api.anthropic.com/v1/messages';
+      if (!isSafeApiUrl(proxyUrl)) throw new Error('Blocked: unsafe endpoint.');
+      const res = await fetch(proxyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 2000, system: PENTEST_SYSTEM, messages: aiChatHistory })
+      });
+      const d = await res.json();
+      if (d.error) throw new Error(escHtml(d.error.message));
+      reply = d.content?.[0]?.text || '';
+    } else {
+      reply = await dispatchAI(prov, key, model, aiChatHistory);
+    }
+    if (!reply) throw new Error('Empty response from API.');
+    thinkEl.remove();
+    addMsg('assistant', reply);
+    aiChatHistory.push({ role: 'assistant', content: reply });
+    document.getElementById('aiChatStatus').textContent = '';
+    log('ok', `AI reply (${prov}/${model}) — ${reply.length} chars`);
+  } catch (err) {
+    thinkEl.remove();
+    const hint = prov === 'anthropic' ? 'Check your Anthropic API key at console.anthropic.com.'
+               : prov === 'openai'    ? 'Check your OpenAI API key at platform.openai.com.'
+               : prov === 'gemini'    ? 'Check your Gemini API key at aistudio.google.com.'
+               : 'Check your xAI API key at console.x.ai.';
+    addMsg('assistant', `Error: ${err.message}\n\n${hint}`);
+    document.getElementById('aiChatStatus').textContent = 'error';
+    log('err', `AI call failed (${prov}): ${err.message}`);
+  }
+  aiIsThinking = false;
+  document.getElementById('aiSendBtn').disabled = false;
+  document.getElementById('aiChatInput').focus();
+}
+
+// ── Legacy stubs for AI Analysis tab ──────────────────────────────────────────
+function setPreset(k) { usePreset(k); }
+function updateProviderUI() {
+  const prov = document.getElementById('aiProvider').value;
+  const modelSel = document.getElementById('aiModel');
+  modelSel.innerHTML = '';
+  (PROVIDERS[prov]?.models || []).forEach(m => {
+    const o = document.createElement('option');
+    o.value = m.v; o.textContent = m.l; modelSel.appendChild(o);
+  });
+  document.getElementById('endpointRow').style.display = prov === 'openai-compat' ? 'flex' : 'none';
+  const saved = keyStore[prov];
+  document.getElementById('ksDot').className = saved ? 'ksdot ok' : 'ksdot';
+  document.getElementById('ksText').textContent = saved ? 'Key saved for this session' : 'No key saved';
+}
+function saveKey() {
+  const prov  = document.getElementById('aiProvider').value;
+  const model = document.getElementById('aiModel').value;
+  const rawKey = document.getElementById('apiKey').value.trim();
+  if (rawKey) {
+    if (!validateApiKey(rawKey, prov)) {
+      alert('API key contains invalid characters. Please check and re-enter.');
+      log('warn', 'API key rejected — invalid format for provider: ' + prov);
+      return;
+    }
+    keyStore[prov] = { key: rawKey, model };
+    document.getElementById('ksDot').className = 'ksdot ok';
+    document.getElementById('ksText').textContent = 'Key saved for this session';
+    // also sync the inline chat panel
+    document.getElementById('chatProvider').value = prov;
+    onProviderChange();
+    log('info', 'API key saved (AI tab) for ' + prov);
+  }
+}
+function clearKey() {
+  const prov = document.getElementById('aiProvider').value;
+  delete keyStore[prov];
+  document.getElementById('apiKey').value = '';
+  document.getElementById('ksDot').className = 'ksdot';
+  document.getElementById('ksText').textContent = 'No key saved';
+}
+function updateRunBtn() {
+  try { document.getElementById('runBtn').disabled = !document.getElementById('confirmCheck').checked; } catch(_){}
+}
+function confirmAndRun() {
+  addSystemMsg('Use the AI panel on the Sanitize tab instead!');
+  showTab('sanitize');
+  if (!aiPanelOpen) toggleAIPanel();
+}
+
+// ── LOG ───────────────────────────────────────────────────────────────────────
+function copyLog(btn) {
+  const text = logEntries.map(e => `${e.ts} [${e.level.toUpperCase()}] ${e.msg}`).join('\n');
+  navigator.clipboard.writeText(text).then(() => flash(btn, '✓ Copied'));
+}
+
+function downloadLog() {
+  const text = logEntries.map(e => `${e.ts} [${e.level.toUpperCase()}] ${e.msg}`).join('\n');
+  const blob = new Blob([text], { type: 'text/plain' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `sanitizer_log_${new Date().toISOString().slice(0,10)}.txt`;
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+function clearLog() {
+  logEntries.length = 0;
+  document.getElementById('logArea').innerHTML = '';
+}
+
+// ── INIT ──────────────────────────────────────────────────────────────────────
+updateRunBtn();
+log('info', 'Pentest Data Sanitizer v8 initialized');
+log('info', 'Multi-provider AI: Claude · ChatGPT · Gemini · Grok — enter API key in the Ask AI panel');
+log('info', 'Auto-redact rules: IPv4, IPv6, Domains/FQDNs, Pentest hostnames, MACs, Cookies/Tokens');
+log('info', 'Select any text in output to redact it. Use ✏ Edit for direct editing.');
+</script>
+</body>
+</html>
